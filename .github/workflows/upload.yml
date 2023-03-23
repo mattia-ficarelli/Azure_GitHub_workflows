@@ -1,0 +1,64 @@
+name: Upload Processed CSV to Azure Storage Account
+
+on:
+  workflow_run:
+    workflows: [Run LFL-Master transformation script]
+    types:
+      - completed
+
+permissions:
+      id-token: write
+      contents: read
+
+jobs:
+  build_and_upload:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - name: setup Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Whitelist GitHub Runner IP
+      uses: azure/CLI@v1
+      with:
+        inlineScript: |
+          set -eu
+          agentIP=$(curl -s https://api.ipify.org/)
+          az storage account network-rule add \
+             --resource-group "${{ secrets.RESOURCE_GROUP }}" \
+             --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+             --ip-address $agentIP
+          sleep 300
+
+    - name: checkout repo content
+      uses: actions/checkout@v3
+
+    - name: Upload flat-file to azure
+      uses: bacongobbler/azure-blob-storage-upload@v2.0.0
+      with:
+        source_dir: data/processed/
+        container_name: ${{ secrets.AZURE_BLOB_CONTAINER }}
+        connection_string: ${{ secrets.AZURE_BLOB_CONNECTION_STRING }}
+        extra_args: "--destination-path MasterData/"
+        overwrite: 'true'
+
+    - name: Remove GitHub Runner IP from Whitelist
+      if: always()
+      uses: azure/CLI@v1
+      with:
+        inlineScript: |
+          set -eu
+          agentIP=$(curl -s https://api.ipify.org/)
+          az storage account network-rule remove  \
+            --resource-group "${{ secrets.RESOURCE_GROUP }}" \
+            --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            --ip-address $agentIP
+
+    - name: logout
+      if: always()
+      run: |
+          az logout

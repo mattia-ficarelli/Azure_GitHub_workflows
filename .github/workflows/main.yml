@@ -1,0 +1,48 @@
+name: Run LFL-Master transformation script
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  dataprocessing_flatfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo content
+        uses: actions/checkout@v3
+
+      - name: setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Python dependencies
+        run: pip install .
+
+      - name: execute py script
+        run: |
+          process_data data/raw/lfl_master_data data/processed/lfl_master_mapping.csv
+
+
+      - name: Commit files
+        id: commit
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "github-actions"
+          git add --all
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "push=false" >> $GITHUB_OUTPUT
+          else
+            git commit --message "Add changes" --all
+            echo "push=true" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Push changes
+        if: steps.commit.outputs.push == 'true'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
